@@ -46,37 +46,6 @@ pub fn build(b: *std.Build) !void {
             },
             // ... additional outputs ...
         },
-        // (optional) executables to generate from the build
-        .exes = .{
-            // set the key to the executable name
-            .FOO = .{
-                // (optional) setup static link to system C library
-                .sys = .{.LIBFOO, .LIBBAR},
-                // (optional) setup imported module from dependency
-                .zig = .{.DEPENDENCY},
-            },
-            // ... additional executables ...
-        },
-        // (optional) static libraries to generate from the build
-        .libs = .{
-            // set the key to the library name
-            .FOO = .{
-                // (optional) setup static link to system C library
-                .sys = .{.LIBFOO, .LIBBAR},
-                // (optional) setup imported module from dependency
-                .zig = .{.DEPENDENCY},
-            },
-            // ... additional libraries ...
-        },
-        // (optional) named modules to add to the build
-        .mods = .{
-            // set the key to the module name
-            .FOO = .{
-                // (optional) setup imported module from dependency
-                .zig = .{.DEPENDENCY},
-            },
-            // ... additional modules ...
-        },
     }).setup(b);
 }
 ```
