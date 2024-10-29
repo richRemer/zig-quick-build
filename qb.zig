@@ -1,4 +1,25 @@
+//! Copyright 2024 Richard Remer
+//!
+//! Permission is hereby granted, free of charge, to any person obtaining a
+//! copy of this software and associated documentation files (the “Software”),
+//! to deal in the Software without restriction, including without limitation
+//! the rights to use, copy, modify, merge, publish, distribute, sublicense,
+//! and/or sell copies of the Software, and to permit persons to whom the
+//! Software is furnished to do so, subject to the following conditions:
+//!
+//! The above copyright notice and this permission notice shall be included in
+//! all copies or substantial portions of the Software.
+//!
+//! THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//! IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//! FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+//! THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//! LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+//! FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+//! DEALINGS IN THE SOFTWARE.
+
 const std = @import("std");
+const mem = std.mem;
 const Type = std.builtin.Type;
 
 /// Initialize a build based on build spec.
@@ -25,6 +46,7 @@ pub fn QuickBuild(comptime spec: anytype) type {
         };
 
         /// Setup a build based on the build spec.
+        /// TODO: add simple way to enable logging
         pub fn setup(b: *std.Build) !void {
             var context = Context.init(b);
             const Spec = @TypeOf(spec);
@@ -42,117 +64,203 @@ pub fn QuickBuild(comptime spec: anytype) type {
                 });
             }
 
-            if (@hasField(Spec, "exes")) {
-                try @This().setupArtifacts(.exe, spec.exes, &context);
-            }
-
-            if (@hasField(Spec, "libs")) {
-                try @This().setupArtifacts(.lib, spec.libs, &context);
+            if (@hasField(Spec, "outs")) {
+                try @This().setupOutputs(spec.outs, &context);
             }
         }
 
-        /// Setup build artifacts based on the .exes or .libs spec.
-        fn setupArtifacts(
-            art_type: ArtifactType,
-            arts_spec: anytype,
-            context: *Context,
-        ) !void {
-            const Arts = @TypeOf(arts_spec);
-            const arts_info = @typeInfo(Arts);
+        /// Configure build outputs based on the .outs spec.
+        fn setupOutputs(outs_spec: anytype, context: *Context) !void {
+            const Outs = @TypeOf(outs_spec);
+            const outs_info = @typeInfo(Outs);
 
-            inline for (arts_info.@"struct".fields) |f| {
+            inline for (outs_info.@"struct".fields) |f| {
                 const name = f.name;
-                const art_spec = @field(arts_spec, name);
-                try @This().setupArtifact(art_type, name, art_spec, context);
+                const out_spec = @field(outs_spec, name);
+                try @This().setupOutput(name, out_spec, context);
             }
         }
 
-        /// Setup an artifact from spec found in .exes or .libs.
-        fn setupArtifact(
-            art_type: ArtifactType,
+        /// Configure build output from spec found in .outs.
+        fn setupOutput(
             name: []const u8,
-            art_spec: anytype,
+            out_spec: anytype,
             context: *Context,
         ) !void {
             var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
             defer arena.deinit();
 
-            const Art = @TypeOf(art_spec);
+            const This = @This();
+            const Out = @TypeOf(out_spec);
             const allocator = arena.allocator();
-            const src_fmt = "{s}/{s}.zig";
             const root_source_file = context.build.path(
-                try std.fmt.allocPrint(allocator, src_fmt, .{
+                try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{
                     spec.src_path,
                     name,
                 }),
             );
 
-            switch (art_type) {
-                .exe => log.debug(
-                    "artifact = b.addExecutable(.{{.name=\"{s}\", .root_source_file=\"{s}\", ...}})",
-                    .{ name, root_source_file.src_path.sub_path },
-                ),
-                .lib => log.debug(
-                    "artifact = b.addStaticLibrary(.{{.name=\"{s}\", .root_source_file=\"{s}\", ...}})",
-                    .{ name, root_source_file.src_path.sub_path },
-                ),
+            if (@hasField(Out, "gen")) {
+                const gen_spec = out_spec.gen;
+                const gen_info = @typeInfo(@TypeOf(gen_spec));
+
+                inline for (gen_info.@"struct".fields) |f| {
+                    const gen_name = @tagName(@field(out_spec.gen, f.name));
+
+                    if (mem.eql(u8, "exe", gen_name)) {
+                        This.setupExe(name, root_source_file, out_spec, context);
+                    } else if (mem.eql(u8, "lib", gen_name)) {
+                        This.setupLib(name, root_source_file, out_spec, context);
+                    } else if (mem.eql(u8, "mod", gen_name)) {
+                        This.setupMod(name, root_source_file, out_spec, context);
+                    } else if (mem.eql(u8, "unit", gen_name)) {
+                        This.setupUnit(root_source_file, out_spec, context);
+                    }
+                }
             }
+        }
 
-            const art = switch (art_type) {
-                .exe => context.build.addExecutable(.{
-                    .name = name,
-                    .root_source_file = root_source_file,
-                    .target = context.target,
-                    .optimize = context.optimize,
-                }),
-                .lib => context.build.addStaticLibrary(.{
-                    .name = name,
-                    .root_source_file = root_source_file,
-                    .target = context.target,
-                    .optimize = context.optimize,
-                }),
-            };
+        /// Setup executable build output.
+        fn setupExe(
+            name: []const u8,
+            path: std.Build.LazyPath,
+            out_spec: anytype,
+            context: *Context,
+        ) void {
+            log.debug(
+                "artifact = b.addExecutable(.{{.name=\"{s}\", .root_source_file=\"{s}\", ...}})",
+                .{ name, path.src_path.sub_path },
+            );
 
-            if (@hasField(Art, "sys")) {
-                log.debug("artifact.linkLibC()");
-                art.linkLibC();
-                @This().setupSysLinks(art, art_spec.sys);
+            const artifact = context.build.addExecutable(.{
+                .name = name,
+                .root_source_file = path,
+                .target = context.target,
+                .optimize = context.optimize,
+            });
+
+            @This().setupArtifactDetails(artifact, out_spec, context);
+        }
+
+        /// Setup static library build output.
+        fn setupLib(
+            name: []const u8,
+            path: std.Build.LazyPath,
+            out_spec: anytype,
+            context: *Context,
+        ) void {
+            log.debug(
+                "artifact = b.addStaticLibrary(.{{.name=\"{s}\", .root_source_file=\"{s}\", ...}})",
+                .{ name, path.src_path.sub_path },
+            );
+
+            const artifact = context.build.addStaticLibrary(.{
+                .name = name,
+                .root_source_file = path,
+                .target = context.target,
+                .optimize = context.optimize,
+            });
+
+            @This().setupArtifactDetails(artifact, out_spec, context);
+        }
+
+        /// Setup module export build output.
+        fn setupMod(
+            name: []const u8,
+            path: std.Build.LazyPath,
+            out_spec: anytype,
+            context: *Context,
+        ) void {
+            const Out = @TypeOf(out_spec);
+
+            log.debug(
+                "module = b.addModule(\"{s}\", .{{.root_source_file=\"{s}\", ...}})",
+                .{ name, path.src_path.sub_path },
+            );
+
+            const module = context.build.addModule(name, .{
+                .root_source_file = path,
+                .target = context.target,
+                .optimize = context.optimize,
+            });
+
+            if (@hasField(Out, "zig")) {
+                const zig_spec = out_spec.zig;
+                const zig_info = @typeInfo(@TypeOf(zig_spec));
+
+                inline for (zig_info.@"struct".fields) |import| {
+                    const dep_name = @tagName(@field(zig_spec, import.name));
+                    const dep = @field(context.deps, dep_name).?;
+
+                    log.debug(
+                        "module.addImport(\"{s}\", {s}.module(\"{s}\"))",
+                        .{ dep_name, dep_name, dep_name },
+                    );
+                    module.addImport(dep_name, dep.module(dep_name));
+                }
             }
+        }
 
-            if (@hasField(Art, "zig")) {
-                @This().setupZigImports(art, art_spec.zig, context);
-            }
-
-            log.debug("b.installArtifact(artifact)", .{});
-            context.build.installArtifact(art);
+        /// Setup unit test dependency on build output.
+        fn setupUnit(
+            path: std.Build.LazyPath,
+            out_spec: anytype,
+            context: *Context,
+        ) void {
+            const This = @This();
+            const Out = @TypeOf(out_spec);
 
             if (context.build.top_level_steps.get("test")) |test_step| {
                 log.debug(
                     "artifact = b.addTest(.{{.root_source_file=\"{s}\", ...}})",
-                    .{root_source_file.src_path.sub_path},
+                    .{path.src_path.sub_path},
                 );
-                const test_art = context.build.addTest(.{
-                    .root_source_file = root_source_file,
+                const artifact = context.build.addTest(.{
+                    .root_source_file = path,
                     .target = context.target,
                     .optimize = context.optimize,
                 });
 
                 log.debug("run_test = b.addRunArtifact(artifact)", .{});
-                const run_test = context.build.addRunArtifact(test_art);
+                const run_test = context.build.addRunArtifact(artifact);
 
-                if (@hasField(Art, "sys")) {
+                if (@hasField(Out, "sys")) {
                     log.debug("artifact.linkLibC()");
-                    test_art.linkLibC();
-                    @This().setupSysLinks(test_art, art_spec.sys);
+                    artifact.linkLibC();
+                    This.setupSysLinks(artifact, out_spec.sys);
                 }
 
-                if (@hasField(Art, "zig")) {
-                    @This().setupZigImports(test_art, art_spec.zig, context);
+                if (@hasField(Out, "zig")) {
+                    This.setupZigImports(artifact, out_spec.zig, context);
                 }
 
                 log.debug("test_step.step.dependOn(&run_test.step)", .{});
                 test_step.step.dependOn(&run_test.step);
             }
+        }
+
+        /// Setup static links to C system libraries and module import
+        /// dependencies for an artifact.
+        fn setupArtifactDetails(
+            artifact: *std.Build.Step.Compile,
+            out_spec: anytype,
+            context: *Context,
+        ) void {
+            const This = @This();
+            const Out = @TypeOf(out_spec);
+
+            if (@hasField(Out, "sys")) {
+                log.debug("artifact.linkLibC()");
+                artifact.linkLibC();
+                This.setupSysLinks(artifact, out_spec.sys);
+            }
+
+            if (@hasField(Out, "zig")) {
+                This.setupZigImports(artifact, out_spec.zig, context);
+            }
+
+            log.debug("b.installArtifact(artifact)", .{});
+            context.build.installArtifact(artifact);
         }
 
         /// Setup build system library links based on build .sys spec.
@@ -243,3 +351,21 @@ fn Null(comptime T: type) type {
 
 /// Scoped log.
 const log = std.log.scoped(.qb);
+
+// pub const std_options = .{
+//     .logFn = logFn,
+//     .log_scope_levels = &.{
+//         .{ .scope = .qb, .level = .warn, }
+//     }
+// };
+
+// fn logFn(
+//     comptime level: std.log.Level,
+//     comptime scope: @TypeOf(.enum_literal),
+//     comptime format: []const u8,
+//     args: anytype,
+// ) void {
+//     if (scope != .qb) {
+//         std.log.defaultLog(level, scope, format, args);
+//     }
+// }

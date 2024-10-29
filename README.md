@@ -24,6 +24,28 @@ pub fn build(b: *std.Build) !void {
         .src_path = "src",
         // (optional) describe any Zig module dependencies to use
         .deps = .{.DEPENDENCY},
+        // (required) build outputs
+        .outs = .{
+            // set key to name
+            .FOO = .{
+                // (optional) statically link artifacts to system C libraries
+                .sys = .{.LIBRARYA, .LIBRARYB},
+                // (optional) add module dependencies to outputs
+                .zig = .{.DEPENDENCY},
+                // (required) types of build output to generate
+                .gen = .{
+                    // (optional) build executable
+                    .exe,
+                    // (optional) build static library
+                    .lib,
+                    // (optional) export Zig module
+                    .mod,
+                    // (optional) add module to test suite
+                    .unit,
+                }
+            },
+            // ... additional outputs ...
+        },
         // (optional) executables to generate from the build
         .exes = .{
             // set the key to the executable name
@@ -44,6 +66,16 @@ pub fn build(b: *std.Build) !void {
                 // (optional) setup imported module from dependency
                 .zig = .{.DEPENDENCY},
             },
+            // ... additional libraries ...
+        },
+        // (optional) named modules to add to the build
+        .mods = .{
+            // set the key to the module name
+            .FOO = .{
+                // (optional) setup imported module from dependency
+                .zig = .{.DEPENDENCY},
+            },
+            // ... additional modules ...
         },
     }).setup(b);
 }
