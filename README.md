@@ -46,6 +46,6 @@ pub fn build(b: *std.Build) !void {
             },
             // ... additional outputs ...
         },
-    }).setup(b);
+    }).setup(b, {});
 }
 ```
