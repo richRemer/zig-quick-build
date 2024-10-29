@@ -22,11 +22,6 @@ const std = @import("std");
 const mem = std.mem;
 const Type = std.builtin.Type;
 
-/// Build options.
-pub const Options = struct {
-    enable_log: bool = false,
-};
-
 /// Initialize a build based on build spec.
 pub fn QuickBuild(comptime spec: anytype) type {
     return struct {
@@ -36,21 +31,27 @@ pub fn QuickBuild(comptime spec: anytype) type {
             deps: Dependencies(spec),
             target: std.Build.ResolvedTarget,
             optimize: std.builtin.OptimizeMode,
-            options: Options,
+            debug: bool,
 
-            pub fn init(b: *std.Build, options: Options) Context {
-                if (options.enable_log) {
-                    qb_log.debug("b.standardTargetOptions(.{{}})", .{});
-                    qb_log.debug("b.standardOptimizeOption(.{{}})", .{});
-                }
+            pub fn init(b: *std.Build) Context {
+                const debug = b.option(
+                    bool,
+                    "quick-build-debug",
+                    "Enable QuickBuild debug log.",
+                ) orelse false;
 
-                return .{
+                const context = Context{
                     .build = b,
                     .deps = .{},
                     .target = b.standardTargetOptions(.{}),
                     .optimize = b.standardOptimizeOption(.{}),
-                    .options = options,
+                    .debug = debug,
                 };
+
+                context.log("b.standardTargetOptions(.{{}})", .{});
+                context.log("b.standardOptimizeOption(.{{}})", .{});
+
+                return context;
             }
 
             pub fn log(
@@ -58,16 +59,13 @@ pub fn QuickBuild(comptime spec: anytype) type {
                 comptime format: []const u8,
                 args: anytype,
             ) void {
-                if (this.options.enable_log) {
-                    qb_log.debug(format, args);
-                }
+                if (this.debug) qb_log.debug(format, args);
             }
         };
 
         /// Setup a build based on the build spec.
-        /// TODO: add simple way to enable logging
-        pub fn setup(b: *std.Build, options: Options) !void {
-            var context = Context.init(b, options);
+        pub fn setup(b: *std.Build) !void {
+            var context = Context.init(b);
             const Spec = @TypeOf(spec);
 
             context.log("test_step = b.step(\"test\", \"Run unit tests\")", .{});
