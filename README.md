@@ -6,7 +6,7 @@ The recommended way to install the QuickBuild module (**qb.zig**) is to simple
 copy it into your project directory.
 
 ```sh
-$ wget https://raw.githubusercontent.com/richRemer/zig-qb/master/qb.zig
+$ wget https://raw.githubusercontent.com/richRemer/zig-quick-build/master/qb.zig
 ```
 
 Usage
