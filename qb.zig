@@ -242,7 +242,7 @@ pub fn QuickBuild(comptime spec: anytype) type {
                 const run_test = context.build.addRunArtifact(artifact);
 
                 if (@hasField(Out, "sys")) {
-                    context.log("artifact.linkLibC()");
+                    context.log("artifact.linkLibC()", .{});
                     artifact.linkLibC();
                     This.setupSysLinks(artifact, out_spec.sys, context);
                 }
@@ -267,7 +267,7 @@ pub fn QuickBuild(comptime spec: anytype) type {
             const Out = @TypeOf(out_spec);
 
             if (@hasField(Out, "sys")) {
-                context.log("artifact.linkLibC()");
+                context.log("artifact.linkLibC()", .{});
                 artifact.linkLibC();
                 This.setupSysLinks(artifact, out_spec.sys, context);
             }
